@@ -7,6 +7,7 @@ from abc import abstractmethod
 from typing import Iterable, Tuple, List
 
 
+
 class BaseTimeSeriesCrossValidator:
     """
     Abstract class for time series cross-validation.
@@ -21,9 +22,9 @@ class BaseTimeSeriesCrossValidator:
     ----------
     n_splits : int, default=10
         Number of folds. Must be at least 2.
-
     """
-    def __init__(self, n_splits=10):
+
+    def __init__(self, n_splits=10, verbose=False):
         if not isinstance(n_splits, numbers.Integral):
             raise ValueError(f"The number of folds must be of Integral type. {n_splits} of type {type(n_splits)}"
                              f" was passed.")
@@ -35,10 +36,17 @@ class BaseTimeSeriesCrossValidator:
         self.pred_times = None
         self.eval_times = None
         self.indices = None
+        self.verbose = verbose
+
 
     @abstractmethod
     def split(self, X: pd.DataFrame, y: pd.Series = None,
               pred_times: pd.Series = None, eval_times: pd.Series = None):
+
+        if pred_times is None and eval_times is None:
+            pred_times = X.index.to_series()
+            eval_times = pred_times
+
         if not isinstance(X, pd.DataFrame) and not isinstance(X, pd.Series):
             raise ValueError('X should be a pandas DataFrame/Series.')
         if not isinstance(y, pd.Series) and y is not None:
@@ -62,6 +70,43 @@ class BaseTimeSeriesCrossValidator:
         self.pred_times = pred_times
         self.eval_times = eval_times
         self.indices = np.arange(X.shape[0])
+
+
+    @staticmethod
+    def get_breakpoints(s):
+        indices = [0, -1]
+        df = pd.DataFrame(s, columns=['indices'])
+        df['diff'] = df['indices'].diff()
+
+        z = df[ df['diff'] > 1 ]
+        if not z.empty:
+            for i in z.index.tolist():
+                indices.extend([i - 1, i])
+
+        indices = sorted([s[i] for i in indices])
+        return indices
+
+
+    @staticmethod
+    def print_train_test_breakpoints(fold, train_indices, test_indices):
+        ''' prints train/test breakpoints for reference '''
+        print(f'Fold {fold}:')
+        print('-' * 50)
+        train_len, test_len = len(train_indices), len(test_indices)
+        test_perc = 100 * test_len / (train_len + test_len)
+        train_perc = 100 - test_perc
+        print(f'Observations → Train: {train_len:,} ({train_perc:.0f}%) | Test: {test_len:,} ({test_perc:.0f}%)')
+        a, b = list(map(BaseTimeSeriesCrossValidator.get_breakpoints, (train_indices, test_indices)))
+        c = sorted(a + b)
+        print('Breakpoints  → ', end='')
+        for i, x in enumerate(c, 1):
+            even = i % 2 == 0
+            if not even: print('Train:' if x in a else 'Test:', end=' ')
+            print(f'{x:,}', end='')
+            if i != len(c): print(' | ' if even else ' - ', end='')
+        print()
+        print()
+
 
 
 class PurgedWalkForwardCV(BaseTimeSeriesCrossValidator):
@@ -94,10 +139,10 @@ class PurgedWalkForwardCV(BaseTimeSeriesCrossValidator):
 
     max_train_splits: int, default = None
         Maximal number of folds to be used in the train set. If None, there is no upper limit.
-
     """
-    def __init__(self, n_splits=10, n_test_splits=1, min_train_splits=2, max_train_splits=None):
-        super().__init__(n_splits)
+
+    def __init__(self, n_splits=10, n_test_splits=1, min_train_splits=2, max_train_splits=None, verbose=False):
+        super().__init__(n_splits, verbose)
         if not isinstance(n_test_splits, numbers.Integral):
             raise ValueError(f"The number of test folds must be of Integral type. {n_test_splits} of type "
                              f"{type(n_test_splits)} was passed.")
@@ -129,6 +174,7 @@ class PurgedWalkForwardCV(BaseTimeSeriesCrossValidator):
                              f"{max_train_splits}.")
         self.max_train_splits = max_train_splits
         self.fold_bounds = []
+
 
     def split(self, X: pd.DataFrame, y: pd.Series = None, pred_times: pd.Series = None, eval_times: pd.Series = None,
               split_by_time: bool = False) -> Iterable[Tuple[np.ndarray, np.ndarray]]:
@@ -163,8 +209,8 @@ class PurgedWalkForwardCV(BaseTimeSeriesCrossValidator):
 
         test_indices : np.ndarray
             A numpy array containing all the indices in the test set.
-
         """
+
         super().split(X, y, pred_times, eval_times)
 
         # Fold boundaries
@@ -183,7 +229,9 @@ class PurgedWalkForwardCV(BaseTimeSeriesCrossValidator):
             train_indices = self.compute_train_set(fold_bound, count_folds)
 
             count_folds = count_folds + 1
+            if self.verbose: self.print_train_test_breakpoints(count_folds, train_indices, test_indices)
             yield train_indices, test_indices
+
 
     def compute_train_set(self, fold_bound: int, count_folds: int) -> np.ndarray:
         """
@@ -201,7 +249,6 @@ class PurgedWalkForwardCV(BaseTimeSeriesCrossValidator):
         -------
         train_indices: np.ndarray
             A numpy array containing all the indices in the train set.
-
         """
         if count_folds > self.max_train_splits:
             start_train = self.fold_bounds[count_folds - self.max_train_splits]
@@ -211,6 +258,7 @@ class PurgedWalkForwardCV(BaseTimeSeriesCrossValidator):
         # Purge
         train_indices = purge(self, train_indices, fold_bound, self.indices[-1])
         return train_indices
+
 
     def compute_test_set(self, fold_bound: int, count_folds: int) -> np.ndarray:
         """
@@ -228,13 +276,13 @@ class PurgedWalkForwardCV(BaseTimeSeriesCrossValidator):
         -------
         test_indices: np.ndarray
             A numpy array containing the test indices.
-
         """
         if self.n_splits - count_folds > self.n_test_splits:
             end_test = self.fold_bounds[count_folds + self.n_test_splits]
         else:
             end_test = self.indices[-1] + 1
         return np.arange(fold_bound, end_test)
+
 
 
 class CombPurgedKFoldCV(BaseTimeSeriesCrossValidator):
@@ -263,10 +311,10 @@ class CombPurgedKFoldCV(BaseTimeSeriesCrossValidator):
 
     embargo_td : pd.Timedelta, default=0
         Embargo period (see explanations above).
-
     """
-    def __init__(self, n_splits=10, n_test_splits=2, embargo_td=pd.Timedelta(minutes=0)):
-        super().__init__(n_splits)
+
+    def __init__(self, n_splits=10, n_test_splits=2, embargo_td=pd.Timedelta(minutes=0), verbose=False):
+        super().__init__(n_splits, verbose)
         if not isinstance(n_test_splits, numbers.Integral):
             raise ValueError(f"The number of test folds must be of Integral type. {n_test_splits} of type "
                              f"{type(n_test_splits)} was passed.")
@@ -281,6 +329,7 @@ class CombPurgedKFoldCV(BaseTimeSeriesCrossValidator):
         if embargo_td < pd.Timedelta(minutes=0):
             raise ValueError(f"The embargo time should be positive, got embargo = {embargo_td}.")
         self.embargo_td = embargo_td
+
 
     def split(self, X: pd.DataFrame, y: pd.Series = None,
               pred_times: pd.Series = None, eval_times: pd.Series = None) -> Iterable[Tuple[np.ndarray, np.ndarray]]:
@@ -311,7 +360,6 @@ class CombPurgedKFoldCV(BaseTimeSeriesCrossValidator):
 
         test_indices : np.ndarray
             A numpy array containing all the indices in the test set.
-
         """
         super().split(X, y, pred_times, eval_times)
 
@@ -322,13 +370,14 @@ class CombPurgedKFoldCV(BaseTimeSeriesCrossValidator):
         # In order for the first round to have its whole test set at the end of the dataset
         selected_fold_bounds.reverse()
 
-        for fold_bound_list in selected_fold_bounds:
+        for count_folds, fold_bound_list in enumerate(selected_fold_bounds, 1):
             # Computes the bounds of the test set, and the corresponding indices
             test_fold_bounds, test_indices = self.compute_test_set(fold_bound_list)
             # Computes the train set indices
             train_indices = self.compute_train_set(test_fold_bounds, test_indices)
-
+            if self.verbose: self.print_train_test_breakpoints(count_folds, train_indices, test_indices)
             yield train_indices, test_indices
+
 
     def compute_train_set(self, test_fold_bounds: List[Tuple[int, int]], test_indices: np.ndarray) -> np.ndarray:
         """
@@ -346,7 +395,6 @@ class CombPurgedKFoldCV(BaseTimeSeriesCrossValidator):
         -------
         train_indices: np.ndarray
             A numpy array containing all the indices in the train set.
-
         """
         # As a first approximation, the train set is the complement of the test set
         train_indices = np.setdiff1d(self.indices, test_indices)
@@ -357,6 +405,7 @@ class CombPurgedKFoldCV(BaseTimeSeriesCrossValidator):
             # Embargo
             train_indices = embargo(self, train_indices, test_indices, test_fold_end)
         return train_indices
+
 
     def compute_test_set(self, fold_bound_list: List[Tuple[int, int]]) -> Tuple[List[Tuple[int, int]], np.ndarray]:
         """
@@ -374,7 +423,6 @@ class CombPurgedKFoldCV(BaseTimeSeriesCrossValidator):
 
         test_indices: np.ndarray
             A numpy array containing the test indices.
-
         """
         test_indices = np.empty(0)
         test_fold_bounds = []
@@ -437,7 +485,6 @@ def embargo(cv: BaseTimeSeriesCrossValidator, train_indices: np.ndarray,
     -------
     train_indices: np.ndarray
         The same array, with the indices subject to embargo removed.
-
     """
     if not hasattr(cv, 'embargo_td'):
         raise ValueError("The passed cross-validation object should have a member cv.embargo_td defining the embargo"
@@ -476,7 +523,6 @@ def purge(cv: BaseTimeSeriesCrossValidator, train_indices: np.ndarray,
     -------
     train_indices: np.ndarray
         A numpy array containing the train indices purged at test_fold_start.
-
     """
     time_test_fold_start = cv.pred_times.iloc[test_fold_start]
     # The train indices before the start of the test fold, purged.
@@ -484,3 +530,8 @@ def purge(cv: BaseTimeSeriesCrossValidator, train_indices: np.ndarray,
     # The train indices after the end of the test fold.
     train_indices_2 = np.intersect1d(train_indices, cv.indices[test_fold_end:])
     return np.concatenate((train_indices_1, train_indices_2))
+
+
+
+if __name__ == '__main__':
+    pass
