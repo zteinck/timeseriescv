@@ -3,12 +3,16 @@ import numbers
 import numpy as np
 import pandas as pd
 
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from typing import Iterable, Tuple, List
 
 
 
-class BaseTimeSeriesCrossValidator(object):
+#+---------------------------------------------------------------------------+
+# Classes
+#+---------------------------------------------------------------------------+
+
+class BaseTimeSeriesCrossValidator(ABC):
     """
     Abstract class for time series cross-validation.
 
@@ -37,6 +41,7 @@ class BaseTimeSeriesCrossValidator(object):
         self.eval_times = None
         self.indices = None
         self.verbose = verbose
+
 
 
     @abstractmethod
@@ -70,42 +75,6 @@ class BaseTimeSeriesCrossValidator(object):
         self.pred_times = pred_times
         self.eval_times = eval_times
         self.indices = np.arange(X.shape[0])
-
-
-    @staticmethod
-    def get_breakpoints(s):
-        indices = [0, -1]
-        df = pd.DataFrame(s, columns=['indices'])
-        df['diff'] = df['indices'].diff()
-
-        z = df[ df['diff'] > 1 ]
-        if not z.empty:
-            for i in z.index.tolist():
-                indices.extend([i - 1, i])
-
-        indices = sorted([s[i] for i in indices])
-        return indices
-
-
-    @staticmethod
-    def print_train_test_breakpoints(fold, train_indices, test_indices):
-        ''' prints train/test breakpoints for reference '''
-        print(f'Fold {fold}:')
-        print('-' * 50)
-        train_len, test_len = len(train_indices), len(test_indices)
-        test_perc = 100 * test_len / (train_len + test_len)
-        train_perc = 100 - test_perc
-        print(f'Observations → Train: {train_len:,} ({train_perc:.0f}%) | Test: {test_len:,} ({test_perc:.0f}%)')
-        a, b = list(map(BaseTimeSeriesCrossValidator.get_breakpoints, (train_indices, test_indices)))
-        c = sorted(a + b)
-        print('Breakpoints  → ', end='')
-        for i, x in enumerate(c, 1):
-            even = i % 2 == 0
-            if not even: print('Train:' if x in a else 'Test:', end=' ')
-            print(f'{x:,}', end='')
-            if i != len(c): print(' | ' if even else ' - ', end='')
-        print()
-        print()
 
 
 
@@ -176,6 +145,7 @@ class PurgedWalkForwardCV(BaseTimeSeriesCrossValidator):
         self.fold_bounds = []
 
 
+
     def split(self, X: pd.DataFrame, y: pd.Series = None, pred_times: pd.Series = None, eval_times: pd.Series = None,
               split_by_time: bool = False) -> Iterable[Tuple[np.ndarray, np.ndarray]]:
         """
@@ -233,6 +203,7 @@ class PurgedWalkForwardCV(BaseTimeSeriesCrossValidator):
             yield train_indices, test_indices
 
 
+
     def compute_train_set(self, fold_bound: int, count_folds: int) -> np.ndarray:
         """
         Compute the position indices of samples in the train set.
@@ -258,6 +229,7 @@ class PurgedWalkForwardCV(BaseTimeSeriesCrossValidator):
         # Purge
         train_indices = purge(self, train_indices, fold_bound, self.indices[-1])
         return train_indices
+
 
 
     def compute_test_set(self, fold_bound: int, count_folds: int) -> np.ndarray:
@@ -331,6 +303,7 @@ class CombPurgedKFoldCV(BaseTimeSeriesCrossValidator):
         self.embargo_td = embargo_td
 
 
+
     def split(self, X: pd.DataFrame, y: pd.Series = None,
               pred_times: pd.Series = None, eval_times: pd.Series = None) -> Iterable[Tuple[np.ndarray, np.ndarray]]:
         """
@@ -379,6 +352,7 @@ class CombPurgedKFoldCV(BaseTimeSeriesCrossValidator):
             yield train_indices, test_indices
 
 
+
     def compute_train_set(self, test_fold_bounds: List[Tuple[int, int]], test_indices: np.ndarray) -> np.ndarray:
         """
         Compute the position indices of samples in the train set.
@@ -405,6 +379,7 @@ class CombPurgedKFoldCV(BaseTimeSeriesCrossValidator):
             # Embargo
             train_indices = embargo(self, train_indices, test_indices, test_fold_end)
         return train_indices
+
 
 
     def compute_test_set(self, fold_bound_list: List[Tuple[int, int]]) -> Tuple[List[Tuple[int, int]], np.ndarray]:
@@ -437,6 +412,11 @@ class CombPurgedKFoldCV(BaseTimeSeriesCrossValidator):
         return test_fold_bounds, test_indices
 
 
+
+#+---------------------------------------------------------------------------+
+# Freestanding functions
+#+---------------------------------------------------------------------------+
+
 def compute_fold_bounds(cv: BaseTimeSeriesCrossValidator, split_by_time: bool) -> List[int]:
     """
     Compute a list containing the fold (left) boundaries.
@@ -456,6 +436,7 @@ def compute_fold_bounds(cv: BaseTimeSeriesCrossValidator, split_by_time: bool) -
         return cv.pred_times.searchsorted(fold_bounds_times)
     else:
         return [fold[0] for fold in np.array_split(cv.indices, cv.n_splits)]
+
 
 
 def embargo(cv: BaseTimeSeriesCrossValidator, train_indices: np.ndarray,
@@ -497,6 +478,7 @@ def embargo(cv: BaseTimeSeriesCrossValidator, train_indices: np.ndarray,
     return train_indices
 
 
+
 def purge(cv: BaseTimeSeriesCrossValidator, train_indices: np.ndarray,
           test_fold_start: int, test_fold_end: int) -> np.ndarray:
     """
@@ -530,6 +512,44 @@ def purge(cv: BaseTimeSeriesCrossValidator, train_indices: np.ndarray,
     # The train indices after the end of the test fold.
     train_indices_2 = np.intersect1d(train_indices, cv.indices[test_fold_end:])
     return np.concatenate((train_indices_1, train_indices_2))
+
+
+
+def get_breakpoints(s):
+    indices = [0, -1]
+    df = pd.DataFrame(s, columns=['indices'])
+    df['diff'] = df['indices'].diff()
+
+    z = df[ df['diff'] > 1 ]
+    if not z.empty:
+        for i in z.index.tolist():
+            indices.extend([i - 1, i])
+
+    indices = sorted([s[i] for i in indices])
+    return indices
+
+
+
+def print_train_test_breakpoints(fold, train_indices, test_indices):
+    ''' prints train/test breakpoints for reference '''
+    print(f'Fold {fold}:')
+    print('-' * 50)
+    train_len, test_len = len(train_indices), len(test_indices)
+    test_perc = 100 * test_len / (train_len + test_len)
+    train_perc = 100 - test_perc
+    print(f'Observations → Train: {train_len:,} ({train_perc:.0f}%) | Test: {test_len:,} ({test_perc:.0f}%)')
+    a, b = list(map(BaseTimeSeriesCrossValidator.get_breakpoints, (train_indices, test_indices)))
+    c = sorted(a + b)
+    print('Breakpoints  → ', end='')
+    for i, x in enumerate(c, 1):
+        even = i % 2 == 0
+        if not even: print('Train:' if x in a else 'Test:', end=' ')
+        print(f'{x:,}', end='')
+        if i != len(c): print(' | ' if even else ' - ', end='')
+    print()
+    print()
+
+
 
 
 
