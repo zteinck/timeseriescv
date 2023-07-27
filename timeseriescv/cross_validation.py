@@ -8,7 +8,7 @@ from typing import Iterable, Tuple, List
 
 
 
-class BaseTimeSeriesCrossValidator:
+class BaseTimeSeriesCrossValidator(object):
     """
     Abstract class for time series cross-validation.
 
