@@ -199,7 +199,7 @@ class PurgedWalkForwardCV(BaseTimeSeriesCrossValidator):
             train_indices = self.compute_train_set(fold_bound, count_folds)
 
             count_folds = count_folds + 1
-            if self.verbose: self.print_train_test_breakpoints(count_folds, train_indices, test_indices)
+            if self.verbose: print_train_test_breakpoints(count_folds, train_indices, test_indices)
             yield train_indices, test_indices
 
 
@@ -348,7 +348,7 @@ class CombPurgedKFoldCV(BaseTimeSeriesCrossValidator):
             test_fold_bounds, test_indices = self.compute_test_set(fold_bound_list)
             # Computes the train set indices
             train_indices = self.compute_train_set(test_fold_bounds, test_indices)
-            if self.verbose: self.print_train_test_breakpoints(count_folds, train_indices, test_indices)
+            if self.verbose: print_train_test_breakpoints(count_folds, train_indices, test_indices)
             yield train_indices, test_indices
 
 
@@ -538,7 +538,7 @@ def print_train_test_breakpoints(fold, train_indices, test_indices):
     test_perc = 100 * test_len / (train_len + test_len)
     train_perc = 100 - test_perc
     print(f'Observations → Train: {train_len:,} ({train_perc:.0f}%) | Test: {test_len:,} ({test_perc:.0f}%)')
-    a, b = list(map(BaseTimeSeriesCrossValidator.get_breakpoints, (train_indices, test_indices)))
+    a, b = list(map(get_breakpoints, (train_indices, test_indices)))
     c = sorted(a + b)
     print('Breakpoints  → ', end='')
     for i, x in enumerate(c, 1):
