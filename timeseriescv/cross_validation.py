@@ -48,14 +48,15 @@ class BaseTimeSeriesCrossValidator(ABC):
     def split(self, X: pd.DataFrame, y: pd.Series = None,
               pred_times: pd.Series = None, eval_times: pd.Series = None):
 
-        if pred_times is None and eval_times is None:
-            pred_times = X.index.to_series()
-            eval_times = pred_times
-
         if not isinstance(X, pd.DataFrame) and not isinstance(X, pd.Series):
             raise ValueError('X should be a pandas DataFrame/Series.')
         if not isinstance(y, pd.Series) and y is not None:
             raise ValueError('y should be a pandas Series.')
+
+        if pred_times is None and eval_times is None:
+            pred_times = X.index.to_series()
+            eval_times = pred_times
+
         if not isinstance(pred_times, pd.Series):
             raise ValueError('pred_times should be a pandas Series.')
         if not isinstance(eval_times, pd.Series):
